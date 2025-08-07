@@ -11,12 +11,14 @@ import (
 
     "github.com/moby/moby/api/types/container"
     "github.com/moby/moby/client"
+    "github.com/shirou/gopsutil/v3/mem"
 )
 
 type ContainerStat struct {
-    Name        string
-    ID          string
-    MemoryUsage uint64 // in bytes
+    Name             string
+    ID               string
+    MemoryUsage      uint64  // Memory in bytes
+    MemoryPercentage float64 // Memory usage as a percentage of total system memory
 }
 
 // converts bytes to a human-readable string (KB, MB, GB)
@@ -36,6 +38,12 @@ func formatBytes(b uint64) string {
 func main() {
     ctx := context.Background()
 
+    vmem, err := mem.VirtualMemory()
+    if err != nil {
+        log.Fatalf("❌ Could not get system memory: %v", err)
+    }
+    totalSystemMemory := vmem.Total
+
     // connect to the Docker daemon
     cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
     if err != nil {
@@ -54,8 +62,8 @@ func main() {
     log.Println("Containers running:", len(containers))
 
     var stats []ContainerStat
+    var totalContainerMemUsage uint64
 
-    // iterate over containers to get stats for each one
     for _, cont := range containers {
         // the `false` flag means we get a single stats snapshot, not a stream
         response, err := cli.ContainerStats(ctx, cont.ID, false)
@@ -83,26 +91,34 @@ func main() {
             memUsage = v.MemoryStats.Usage
         }
 
+        totalContainerMemUsage += memUsage
+
+        memPercentage := 0.0
+        if totalSystemMemory > 0 {
+            memPercentage = float64(memUsage) / float64(totalSystemMemory) * 100.0
+        }
+
         stats = append(stats, ContainerStat{
-            Name:        cont.Names[0],
-            ID:          cont.ID[:12], // short id for readability
-            MemoryUsage: memUsage,
+            Name:             cont.Names[0],
+            ID:               cont.ID[:12],
+            MemoryUsage:      memUsage,
+            MemoryPercentage: memPercentage,
         })
     }
 
-    // sort the slice by memory usage desc
     sort.Slice(stats, func(i, j int) bool {
         return stats[i].MemoryUsage > stats[j].MemoryUsage
     })
 
-    // print the results in a formatted table
-    fmt.Println("🐳 Docker Container Memory Usage (Sorted)")
+    fmt.Println("🐳 Docker Container Memory Usage")
     w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-    fmt.Fprintln(w, "CONTAINER NAME\tID\tMEMORY USAGE")
-    fmt.Fprintln(w, "--------------\t--\t------------")
+    fmt.Fprintln(w, "CONTAINER NAME\tID\tMEMORY USAGE\tMEM %")
+    fmt.Fprintln(w, "--------------\t--\t------------\t-----")
 
     for _, s := range stats {
-        fmt.Fprintf(w, "%s\t%s\t%s\n", s.Name, s.ID, formatBytes(s.MemoryUsage))
+        fmt.Fprintf(w, "%s\t%s\t%s\t%.2f%%\n", s.Name, s.ID, formatBytes(s.MemoryUsage), s.MemoryPercentage)
     }
     w.Flush()
+
+    fmt.Printf("\n📊 Total Memory Usage (All Containers): %s\n", formatBytes(totalContainerMemUsage))
 }
