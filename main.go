@@ -7,6 +7,7 @@ import (
     "log"
     "os"
     "sort"
+    "strings"
     "text/tabwriter"
 
     "github.com/moby/moby/api/types/container"
@@ -98,9 +99,12 @@ func main() {
             memPercentage = float64(memUsage) / float64(totalSystemMemory) * 100.0
         }
 
+        var containerName = strings.ReplaceAll(cont.Names[0], "-2e", "-")
+        var containerId = cont.ID[:12]
+
         stats = append(stats, ContainerStat{
-            Name:             cont.Names[0],
-            ID:               cont.ID[:12],
+            Name:             containerName,
+            ID:               containerId,
             MemoryUsage:      memUsage,
             MemoryPercentage: memPercentage,
         })
