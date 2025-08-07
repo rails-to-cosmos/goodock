@@ -1,2 +1,5 @@
 /.dir-locals.el
 /.envrc
+/.direnv/
+/goodock
+/goodock_linux
